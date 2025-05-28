@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Discount Calculator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Discount Calculator</h1>
+    <div class="controls">
+      <button onclick="addRow()">Add Row</button>
+      <button onclick="calculateDiscounts()">Calculate</button>
+      <button onclick="exportCSV()">Export CSV</button>
+      <input type="file" id="csvFileInput" onchange="importCSV(event)" accept=".csv" />
+    </div>
+    <table id="invoiceTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Product Code</th>
+          <th>Description</th>
+          <th>Invoice #</th>
+          <th>Invoice Date</th>
+          <th>Due Date</th>
+          <th>Quantity</th>
+          <th>Unit Price</th>
+          <th>Invoice Amount</th>
+          <th>Payment Doc</th>
+          <th>Payment Date</th>
+          <th>Payment Amount</th>
+          <th>Discount %</th>
+          <th>Discount Amt</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody">
+        <!-- Rows will be added dynamically -->
+      </tbody>
+    </table>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>

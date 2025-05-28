@@ -1,0 +1,47 @@
+body {
+  font-family: Arial, sans-serif;
+  background: #f9f9f9;
+  margin: 0;
+  padding: 20px;
+}
+
+.container {
+  max-width: 1000px;
+  margin: auto;
+  background: #fff;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+h1 {
+  text-align: center;
+}
+
+.controls {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+button {
+  margin: 5px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+th, td {
+  padding: 8px;
+  border: 1px solid #ccc;
+  text-align: center;
+}
+
+input[type="text"], input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+}

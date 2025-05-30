@@ -1,11 +1,11 @@
+
 modules = ["nodejs-20", "web"]
-run = "run = \"python3 -m http.server 3000\""
 
 [nix]
 channel = "stable-24_05"
 
 [deployment]
-run = ["sh", "-c", "run = \"python3 -m http.server 3000\""]
+run = ["sh", "-c", "npx http-server -p 5000"]
 
 [workflows]
 runButton = "Web Server"
@@ -17,12 +17,8 @@ mode = "sequential"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npx http-server -p 5000"
-
-[[ports]]
-localPort = 3000
-externalPort = 80
+args = "npx http-server -p 5000 --cors"
 
 [[ports]]
 localPort = 5000
-externalPort = 5000
+externalPort = 80

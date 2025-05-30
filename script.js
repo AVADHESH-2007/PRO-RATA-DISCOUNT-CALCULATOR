@@ -1,35 +1,41 @@
 function addRow() {
   const tbody = document.getElementById('tableBody');
+  const rowCount = tbody.children.length + 1;
   const row = document.createElement('tr');
-  row.innerHTML = `
-    <td><input type="checkbox"/></td>
-    <td>${tbody.children.length + 1}</td>
-    <td><input type="text"/></td>
-    <td><input type="text"/></td>
-    <td><input type="text"/></td>
-    <td><input type="text" placeholder="DD-MM-YYYY"/></td>
-    <td><input type="text" placeholder="DD-MM-YYYY"/></td>
-    <td><input type="number"/></td>
-    <td><input type="number"/></td>
-    <td><input type="number"/></td>
-    <td><input type="text"/></td>
-    <td><input type="text" placeholder="DD-MM-YYYY"/></td>
-    <td><input type="number"/></td>
-    <td><input type="number"/></td>
-    <td class="discount-amount">-</td>
-  `;
+  
+  // Create cells more efficiently
+  const cells = [
+    '<td><input type="checkbox"/></td>',
+    `<td>${rowCount}</td>`,
+    '<td><input type="text"/></td>',
+    '<td><input type="text"/></td>',
+    '<td><input type="text"/></td>',
+    '<td><input type="text" placeholder="DD-MM-YYYY"/></td>',
+    '<td><input type="text" placeholder="DD-MM-YYYY"/></td>',
+    '<td><input type="number"/></td>',
+    '<td><input type="number"/></td>',
+    '<td><input type="number"/></td>',
+    '<td><input type="text"/></td>',
+    '<td><input type="text" placeholder="DD-MM-YYYY"/></td>',
+    '<td><input type="number"/></td>',
+    '<td><input type="number"/></td>',
+    '<td class="discount-amount">-</td>'
+  ];
+  
+  row.innerHTML = cells.join('');
   tbody.appendChild(row);
 }
 
 function calculateDiscounts() {
   const rows = document.querySelectorAll('#tableBody tr');
-  rows.forEach(row => {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     const inputs = row.querySelectorAll('input');
     const amount = parseFloat(inputs[8].value) || 0;
     const discountRate = parseFloat(inputs[12].value) || 0;
     const discountAmt = (amount * discountRate / 100).toFixed(2);
-    row.querySelector('.discount-amount').innerText = discountAmt;
-  });
+    row.querySelector('.discount-amount').textContent = discountAmt;
+  }
 }
 
 function exportCSV() {

@@ -54,12 +54,11 @@ button {
 }
 
 button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+  background: linear-gradient(135deg, #5a6fd8 0%, #6b4190 100%);
 }
 
 button:active {
-  transform: translateY(0);
+  background: linear-gradient(135deg, #4e5bc6 0%, #5d3a7e 100%);
 }
 
 #csvFileInput {
@@ -105,7 +104,7 @@ td {
 }
 
 tbody tr {
-  transition: background-color 0.2s ease;
+  transition: background-color 0.1s ease;
 }
 
 tbody tr:hover {

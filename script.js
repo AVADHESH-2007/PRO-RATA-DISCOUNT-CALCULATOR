@@ -2,6 +2,7 @@ function addRow() {
   const tbody = document.getElementById('tableBody');
   const row = document.createElement('tr');
   row.innerHTML = `
+    <td><input type="checkbox"/></td>
     <td>${tbody.children.length + 1}</td>
     <td><input type="text"/></td>
     <td><input type="text"/></td>
@@ -59,6 +60,7 @@ function importCSV(event) {
       const values = line.split(',');
       const row = document.createElement('tr');
       row.innerHTML = `
+        <td><input type="checkbox"/></td>
         <td>${i + 1}</td>
         ${values.slice(1, 13).map((v, idx) => `<td><input type="${idx >= 6 && idx <= 12 ? 'number' : 'text'}" value="${v.replace(/"/g, '')}" /></td>`).join('')}
         <td class="discount-amount">-</td>

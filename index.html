@@ -71,10 +71,9 @@
 </head>
 <body>
   <div class="container">
-    <h1>Discount Calculator</h1>
+    <h1>PRO RATA DISCOUNT CALCULATOR</h1>
     <div class="controls">
       <button onclick="addRow()">Add Row</button>
-      <button onclick="calculateDiscounts()">Calculate</button>
       <button onclick="exportCSV()">Export CSV</button>
       <button onclick="downloadSampleCSV()">Sample CSV</button>
       <button onclick="selectAll()">Select All</button>
@@ -87,10 +86,10 @@
       <thead>
         <tr>
           <th>Select</th>
-          <th>Sl.No.</th>
+          <th>Sl. No.</th>
           <th>Product Code</th>
           <th>Description</th>
-          <th>Invoice #</th>
+          <th>INVOICE NO.</th>
           <th>Invoice Date</th>
           <th>Due Date</th>
           <th>Quantity</th>
@@ -102,8 +101,8 @@
           <th>Discount PMT</th>
           <th>Diff. Days</th>
           <th>Prop. Qty.</th>
-          <th>Discount Amt</th>
-          <th>Balance Amt.</th>
+          <th>Discount Amount</th>
+          <th>Balance Amount</th>
           <th>Remarks</th>
         </tr>
       </thead>
@@ -147,6 +146,99 @@
       return [day, month, year].join('-');
     }
 
+    // --- Calculation Logic ---
+    function calculateRow(tr) {
+  const tds = tr.querySelectorAll('td');
+  // Editable fields
+  const qty = parseFloat(tds[7]?.querySelector('input')?.value);
+  const invAmt = parseFloat(tds[9]?.querySelector('input')?.value);
+  const payAmt = parseFloat(tds[12]?.querySelector('input')?.value);
+  const discPmt = parseFloat(tds[13]?.querySelector('input')?.value);
+
+  // Dates
+  const dueDateStr = tds[6]?.querySelector('input')?.value;
+  const payDateStr = tds[11]?.querySelector('input')?.value;
+
+  // --- Diff. Days ---
+  let diffDays = '';
+  if (dueDateStr && payDateStr) {
+    const [d1, m1, y1] = dueDateStr.split('-').map(Number);
+    const [d2, m2, y2] = payDateStr.split('-').map(Number);
+    const dueDate = new Date(y1, m1 - 1, d1);
+    const payDate = new Date(y2, m2 - 1, d2);
+    if (!isNaN(dueDate) && !isNaN(payDate)) {
+      if (payDate > dueDate) {
+        diffDays = "N.A.";
+      } else {
+        diffDays = Math.round((dueDate - payDate) / (1000 * 60 * 60 * 24));
+      }
+    }
+  }
+  if (tds[14]) tds[14].textContent = diffDays !== '' ? diffDays : '';
+
+  // --- Unit Price ---
+  let unitPrice = (typeof qty === "number" && qty > 0 && typeof invAmt === "number" && !isNaN(invAmt)) ? (invAmt / qty) : '';
+  if (tds[8]?.querySelector('input')) {
+    tds[8].querySelector('input').value = unitPrice !== '' && !isNaN(unitPrice) ? unitPrice.toFixed(2) : '';
+  }
+
+  // --- Prop. Qty. ---
+  let propQty = (typeof unitPrice === "number" && unitPrice > 0 && typeof payAmt === "number" && !isNaN(payAmt)) ? (payAmt / unitPrice) : '';
+  if (tds[15]) tds[15].textContent = propQty !== '' && !isNaN(propQty) ? propQty.toFixed(2) : '';
+
+  // --- Discount Amount ---
+  let discAmt = '';
+  if (
+    typeof discPmt === "number" && !isNaN(discPmt) &&
+    diffDays !== '' && diffDays !== "N.A." &&
+    typeof diffDays === "number" && !isNaN(diffDays) &&
+    typeof propQty === "number" && !isNaN(propQty)
+  ) {
+    discAmt = discPmt * diffDays * propQty;
+    if (tds[16]) tds[16].textContent = discAmt.toFixed(2);
+  } else {
+    if (tds[16]) tds[16].textContent = "N.A.";
+    discAmt = "N.A.";
+  }
+
+  // --- Balance Amt ---
+  let balAmt = '';
+  if (
+    typeof invAmt === "number" && !isNaN(invAmt) &&
+    typeof payAmt === "number" && !isNaN(payAmt) &&
+    typeof discAmt === "number" && !isNaN(discAmt)
+  ) {
+    balAmt = (invAmt - payAmt - discAmt).toFixed(2);
+  } else {
+    balAmt = "N.A.";
+  }
+  if (tds[17]?.querySelector('input')) {
+    tds[17].querySelector('input').value = balAmt;
+  }
+}
+
+    // Calculate all rows
+    function calculateDiscounts() {
+      document.querySelectorAll('#tableBody tr').forEach(tr => calculateRow(tr));
+    }
+
+    // --- Event Binding ---
+    function bindRowEvents(tr) {
+      // Listen to changes on all editable inputs in the row
+      tr.querySelectorAll('input[type="text"], input[type="number"]').forEach(input => {
+        if (!input.readOnly) {
+          input.addEventListener('input', () => {
+            calculateRow(tr);
+          });
+        }
+      });
+    }
+
+    // Bind events for all rows (existing and future)
+    function bindAllRows() {
+      document.querySelectorAll('#tableBody tr').forEach(tr => bindRowEvents(tr));
+    }
+
     // Add Row
     function addRow() {
       const tbody = document.getElementById('tableBody');
@@ -160,20 +252,21 @@
         <td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
         <td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
         <td><input type="number" min="0" /></td>
-        <td><input type="number" min="0" readonly /></td> <!-- Unit Price: always blank, readonly -->
+        <td><input type="number" min="0" readonly /></td>
         <td><input type="number" min="0" /></td>
         <td><input type="text" /></td>
         <td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
         <td><input type="number" min="0" /></td>
         <td><input type="number" min="0" /></td>
-        <td><input type="text" readonly /></td>
-        <td><input type="number" readonly /></td>
-        <td class="discount-amount">-</td>
+        <td></td>
+        <td></td>
+        <td></td>
         <td><input type="number" readonly /></td>
         <td><input type="text" /></td>
       `;
       tbody.appendChild(tr);
       updateSlNo();
+      bindRowEvents(tr);
     }
 
     // Update Sl.No. for all rows
@@ -288,6 +381,7 @@
         if (tds[12].querySelector('input')) tds[12].querySelector('input').value = '';
         if (tds[13].querySelector('input')) tds[13].querySelector('input').value = '';
       });
+      calculateDiscounts();
     }
     function importCSV(event) {
       const file = event.target.files[0];
@@ -312,21 +406,23 @@
             <td><input type="text" value="${cols[3] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
             <td><input type="text" value="${cols[4] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
             <td><input type="number" value="${cols[5] || ''}" min="0" /></td>
-            <td><input type="number" value="" min="0" readonly /></td> <!-- Unit Price: always blank, readonly -->
+            <td><input type="number" value="" min="0" readonly /></td>
             <td><input type="number" value="${cols[7] || ''}" min="0" /></td>
             <td><input type="text" value="${cols[8] || ''}" /></td>
             <td><input type="text" value="${cols[9] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
             <td><input type="number" value="${cols[10] || ''}" min="0" /></td>
             <td><input type="number" value="${cols[11] || ''}" min="0" /></td>
-            <td><input type="text" readonly /></td>
-            <td><input type="number" readonly /></td>
-            <td class="discount-amount">-</td>
+            <td></td>
+            <td></td>
+            <td></td>
             <td><input type="number" readonly /></td>
             <td><input type="text" value="${cols[16] || ''}" /></td>
           `;
           tbody.appendChild(tr);
+          bindRowEvents(tr);
         }
         updateSlNo();
+        calculateDiscounts();
       };
       reader.readAsText(file);
     }
@@ -343,6 +439,14 @@
 
     // Update Sl.No. on row removal/addition
     document.getElementById('tableBody').addEventListener('DOMSubtreeModified', updateSlNo);
+
+    // --- Initial Bindings ---
+    window.addEventListener('DOMContentLoaded', () => {
+      // Bind all rows (for initial sample row)
+      bindAllRows();
+      // Calculate all rows initially
+      calculateDiscounts();
+    });
   </script>
 </body>
 </html>

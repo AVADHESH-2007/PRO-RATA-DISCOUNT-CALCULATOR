@@ -338,7 +338,8 @@
       const rows = [];
       document.querySelectorAll('#tableBody tr').forEach(tr => {
         const tds = tr.querySelectorAll('td');
-        rows.push([
+        // Collect all editable fields
+        const row = [
           tds[2]?.querySelector('input')?.value || '', // Product Code
           tds[3]?.querySelector('input')?.value || '', // Description
           tds[4]?.querySelector('input')?.value || '', // Invoice No
@@ -352,7 +353,11 @@
           tds[12]?.querySelector('input')?.value || '', // Payment Amount
           tds[13]?.querySelector('input')?.value || '', // Discount PMT
           tds[18]?.querySelector('input')?.value || ''  // Remarks
-        ]);
+        ];
+        // Only save if at least one field is non-empty
+        if (row.some(val => val !== "")) {
+          rows.push(row);
+        }
       });
       localStorage.setItem('dc_table_data', JSON.stringify(rows));
     }
@@ -363,7 +368,12 @@
       const rows = JSON.parse(data);
       const tbody = document.getElementById('tableBody');
       tbody.innerHTML = '';
+      // Only add rows if there is at least one non-empty row
+      if (rows.length === 0) return false;
+      let allEmpty = true;
       rows.forEach(cols => {
+        // Check if this row is completely empty
+        if (cols.some(val => val !== "")) allEmpty = false;
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td><input type="checkbox"/></td>
@@ -391,6 +401,11 @@
       });
       updateSlNo();
       calculateDiscounts();
+      // If all rows are empty, treat as no data
+      if (allEmpty) {
+        tbody.innerHTML = '';
+        return false;
+      }
       return true;
     }
 
@@ -522,12 +537,9 @@
     window.addEventListener('DOMContentLoaded', () => {
       // Load from storage or start with one blank row
       if (!loadTableFromStorage()) {
-        // No data in storage, add exactly one blank row
         addRow();
       }
-      // Bind all rows (if any)
       bindAllRows();
-      // Calculate all rows initially
       calculateDiscounts();
     });
   </script>

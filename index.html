@@ -520,9 +520,10 @@
 
     // --- Initial Bindings ---
     window.addEventListener('DOMContentLoaded', () => {
-      // Load from storage or start empty
+      // Load from storage or start with one blank row
       if (!loadTableFromStorage()) {
-        // No data in storage, start with empty table (no sample row)
+        // No data in storage, add exactly one blank row
+        addRow();
       }
       // Bind all rows (if any)
       bindAllRows();

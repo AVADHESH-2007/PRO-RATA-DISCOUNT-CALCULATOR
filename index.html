@@ -107,28 +107,7 @@
         </tr>
       </thead>
       <tbody id="tableBody">
-        <!-- Sample row for testing -->
-        <tr>
-          <td><input type="checkbox" /></td>
-          <td>1</td>
-          <td><input type="text" value="PRD001" /></td>
-          <td><input type="text" value="Sample Product" /></td>
-          <td><input type="text" value="INV123" /></td>
-          <td><input type="text" value="01-06-2024" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-          <td><input type="text" value="30-06-2024" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-          <td><input type="number" value="10" min="0" /></td>
-          <td><input type="number" value="100" min="0" readonly /></td>
-          <td><input type="number" value="1000" min="0" /></td>
-          <td><input type="text" value="PAY456" /></td>
-          <td><input type="text" value="15-06-2024" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-          <td><input type="number" value="500" min="0" /></td>
-          <td><input type="number" value="5" min="0" /></td>
-          <td>14</td>
-          <td>8</td>
-          <td>50</td>
-          <td>950</td>
-          <td><input type="text" /></td>
-        </tr>
+        <!-- No sample row here; will be filled by JS if needed -->
       </tbody>
     </table>
   </div>
@@ -354,15 +333,115 @@
       URL.revokeObjectURL(url);
     }
 
-    function selectAll() {
-      document.querySelectorAll('#invoiceTable tbody input[type="checkbox"]').forEach(cb => cb.checked = true);
+    // --- Local Storage Helpers ---
+    function saveTableToStorage() {
+      const rows = [];
+      document.querySelectorAll('#tableBody tr').forEach(tr => {
+        const tds = tr.querySelectorAll('td');
+        rows.push([
+          tds[2]?.querySelector('input')?.value || '', // Product Code
+          tds[3]?.querySelector('input')?.value || '', // Description
+          tds[4]?.querySelector('input')?.value || '', // Invoice No
+          tds[5]?.querySelector('input')?.value || '', // Invoice Date
+          tds[6]?.querySelector('input')?.value || '', // Due Date
+          tds[7]?.querySelector('input')?.value || '', // Quantity
+          tds[8]?.querySelector('input')?.value || '', // Unit Price
+          tds[9]?.querySelector('input')?.value || '', // Invoice Amount
+          tds[10]?.querySelector('input')?.value || '', // Payment Doc
+          tds[11]?.querySelector('input')?.value || '', // Payment Date
+          tds[12]?.querySelector('input')?.value || '', // Payment Amount
+          tds[13]?.querySelector('input')?.value || '', // Discount PMT
+          tds[18]?.querySelector('input')?.value || ''  // Remarks
+        ]);
+      });
+      localStorage.setItem('dc_table_data', JSON.stringify(rows));
     }
-    function deselectAll() {
-      document.querySelectorAll('#invoiceTable tbody input[type="checkbox"]').forEach(cb => cb.checked = false);
+
+    function loadTableFromStorage() {
+      const data = localStorage.getItem('dc_table_data');
+      if (!data) return false;
+      const rows = JSON.parse(data);
+      const tbody = document.getElementById('tableBody');
+      tbody.innerHTML = '';
+      rows.forEach(cols => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="checkbox"/></td>
+          <td></td>
+          <td><input type="text" value="${cols[0] || ''}" /></td>
+          <td><input type="text" value="${cols[1] || ''}" /></td>
+          <td><input type="text" value="${cols[2] || ''}" /></td>
+          <td><input type="text" value="${cols[3] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+          <td><input type="text" value="${cols[4] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+          <td><input type="number" value="${cols[5] || ''}" min="0" /></td>
+          <td><input type="number" value="${cols[6] || ''}" min="0" readonly /></td>
+          <td><input type="number" value="${cols[7] || ''}" min="0" /></td>
+          <td><input type="text" value="${cols[8] || ''}" /></td>
+          <td><input type="text" value="${cols[9] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+          <td><input type="number" value="${cols[10] || ''}" min="0" /></td>
+          <td><input type="number" value="${cols[11] || ''}" min="0" /></td>
+          <td></td>
+          <td></td>
+          <td></td>
+          <td><input type="number" readonly /></td>
+          <td><input type="text" value="${cols[12] || ''}" /></td>
+        `;
+        tbody.appendChild(tr);
+        bindRowEvents(tr);
+      });
+      updateSlNo();
+      calculateDiscounts();
+      return true;
+    }
+
+    // Save table on every input change
+    function bindRowEvents(tr) {
+      tr.querySelectorAll('input[type="text"], input[type="number"]').forEach(input => {
+        if (!input.readOnly) {
+          input.addEventListener('input', () => {
+            calculateRow(tr);
+            saveTableToStorage();
+          });
+        }
+      });
+      // Also save when checkbox is toggled (for select/deselect)
+      tr.querySelector('input[type="checkbox"]').addEventListener('change', saveTableToStorage);
+    }
+
+    // Save table after row add/remove/reset/import
+    function addRow() {
+      const tbody = document.getElementById('tableBody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox"/></td>
+        <td></td>
+        <td><input type="text" /></td>
+        <td><input type="text" /></td>
+        <td><input type="text" /></td>
+        <td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="number" min="0" /></td>
+        <td><input type="number" min="0" readonly /></td>
+        <td><input type="number" min="0" /></td>
+        <td><input type="text" /></td>
+        <td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="number" min="0" /></td>
+        <td><input type="number" min="0" /></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td><input type="number" readonly /></td>
+        <td><input type="text" /></td>
+      `;
+      tbody.appendChild(tr);
+      updateSlNo();
+      bindRowEvents(tr);
+      saveTableToStorage();
     }
     function removeSelected() {
       document.querySelectorAll('#invoiceTable tbody input[type="checkbox"]:checked').forEach(cb => cb.closest('tr').remove());
       updateSlNo();
+      saveTableToStorage();
     }
     function resetSelected() {
       document.querySelectorAll('#invoiceTable tbody input[type="checkbox"]:checked').forEach(cb => {
@@ -382,6 +461,7 @@
         if (tds[13].querySelector('input')) tds[13].querySelector('input').value = '';
       });
       calculateDiscounts();
+      saveTableToStorage();
     }
     function importCSV(event) {
       const file = event.target.files[0];
@@ -423,6 +503,7 @@
         }
         updateSlNo();
         calculateDiscounts();
+        saveTableToStorage();
       };
       reader.readAsText(file);
     }
@@ -437,12 +518,13 @@
       }
     });
 
-    // Update Sl.No. on row removal/addition
-    document.getElementById('tableBody').addEventListener('DOMSubtreeModified', updateSlNo);
-
     // --- Initial Bindings ---
     window.addEventListener('DOMContentLoaded', () => {
-      // Bind all rows (for initial sample row)
+      // Load from storage or start empty
+      if (!loadTableFromStorage()) {
+        // No data in storage, start with empty table (no sample row)
+      }
+      // Bind all rows (if any)
       bindAllRows();
       // Calculate all rows initially
       calculateDiscounts();

@@ -8,17 +8,17 @@ function addRow() {
     '<td><input type="text"/></td>', // Product Code
     '<td><input type="text"/></td>', // Description
     '<td><input type="text"/></td>', // Invoice #
-    '<td><input type="text" placeholder="DD-MM-YYYY"/></td>', // Invoice Date
-    '<td><input type="text" placeholder="DD-MM-YYYY"/></td>', // Due Date
-    '<td><input type="number"/></td>', // Quantity
-    '<td><input type="number" readonly/></td>', // Unit Price (readonly)
-    '<td><input type="number"/></td>', // Invoice Amount
+    '<td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY"/></td>', // Invoice Date
+    '<td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY"/></td>', // Due Date
+    '<td><input type="number" min="0"/></td>', // Quantity
+    '<td><input type="number" min="0" readonly/></td>', // Unit Price (readonly)
+    '<td><input type="number" min="0"/></td>', // Invoice Amount
     '<td><input type="text"/></td>', // Payment Doc
-    '<td><input type="text" placeholder="DD-MM-YYYY"/></td>', // Payment Date
-    '<td><input type="number"/></td>', // Payment Amount
-    '<td><input type="number" placeholder="Discount PMT"/></td>', // Discount PMT (editable)
-    '<td><input type="text" readonly/></td>', // Diff. Days (readonly, text for N.A.)
-    '<td><input type="number" readonly/></td>', // Prop. Qty. (readonly)
+    '<td><input type="text" class="date-input" maxlength="10" placeholder="DD-MM-YYYY"/></td>', // Payment Date
+    '<td><input type="number" min="0"/></td>', // Payment Amount
+    '<td><input type="number" min="0" placeholder="Discount PMT"/></td>', // Discount PMT (editable)
+    '<td></td>', // Diff. Days (readonly, text for N.A.)
+    '<td></td>', // Prop. Qty. (readonly)
     '<td class="discount-amount">-</td>', // Discount Amt (readonly, not input)
     '<td><input type="number" readonly /></td>', // Balance Amt. (readonly)
     '<td><input type="text"/></td>' // Remarks (editable)
@@ -38,61 +38,172 @@ function parseDDMMYYYY(str) {
   return new Date(yyyy, mm - 1, dd);
 }
 
-function autoCalculateAll() {
-  const rows = document.querySelectorAll('#tableBody tr');
-  rows.forEach(row => {
-    const inputs = row.querySelectorAll('input');
-    if (inputs.length < 19) return;
+// Helper to get formatted date as DD-MM-YYYY
+function formatDate(date) {
+  if (!date) return '';
+  const d = new Date(date);
+  if (isNaN(d)) return date;
+  let day = '' + d.getDate();
+  let month = '' + (d.getMonth() + 1);
+  let year = d.getFullYear();
+  if (day.length < 2) day = '0' + day;
+  if (month.length < 2) month = '0' + month;
+  return [day, month, year].join('-');
+}
 
-    const qty = parseFloat(inputs[7].value) || 0;
-    const invAmt = parseFloat(inputs[9].value) || 0;
-    const unitPrice = qty > 0 ? invAmt / qty : 0;
-    inputs[8].value = (qty > 0 && invAmt > 0) ? unitPrice.toFixed(2) : '';
+// Helper to generate a unique payment number
+function generatePaymentNumber() {
+  // Simple unique number using timestamp and random
+  return 'PAY' + Date.now() + Math.floor(Math.random() * 1000);
+}
 
-    const payAmt = parseFloat(inputs[12].value) || 0;
-    const discPmt = parseFloat(inputs[13].value) || 0;
-    const dueDate = inputs[6].value;
-    const payDate = inputs[11].value;
+// --- Calculation Logic ---
+function calculateRow(tr) {
+  const tds = tr.querySelectorAll('td');
+  // Editable fields
+  const qty = parseFloat(tds[7]?.querySelector('input')?.value);
+  const invAmt = parseFloat(tds[9]?.querySelector('input')?.value);
+  const payAmt = parseFloat(tds[12]?.querySelector('input')?.value);
+  const discPmt = parseFloat(tds[13]?.querySelector('input')?.value);
 
-    // 2. Diff. Days
-    let diffDays = '';
-    let diffDaysNum = 0;
-    if (dueDate && payDate) {
-      const dDue = parseDDMMYYYY(dueDate);
-      const dPay = parseDDMMYYYY(payDate);
-      if (dDue && dPay) {
-        const days = Math.round((dDue - dPay) / (1000 * 60 * 60 * 24));
-        if (days > 0) {
-          diffDays = days;
-          diffDaysNum = days;
-        } else {
-          diffDays = 'N.A.';
-          diffDaysNum = 0;
-        }
+  // Dates
+  const dueDateStr = tds[6]?.querySelector('input')?.value;
+  const payDateStr = tds[11]?.querySelector('input')?.value;
+
+  // --- Diff. Days ---
+  let diffDays = '';
+  if (dueDateStr && payDateStr) {
+    const [d1, m1, y1] = dueDateStr.split('-').map(Number);
+    const [d2, m2, y2] = payDateStr.split('-').map(Number);
+    const dueDate = new Date(y1, m1 - 1, d1);
+    const payDate = new Date(y2, m2 - 1, d2);
+    if (!isNaN(dueDate) && !isNaN(payDate)) {
+      if (payDate > dueDate) {
+        diffDays = "N.A.";
+      } else {
+        diffDays = Math.round((dueDate - payDate) / (1000 * 60 * 60 * 24));
       }
     }
-    inputs[14].value = diffDays;
+  }
+  if (tds[14]) tds[14].textContent = diffDays !== '' ? diffDays : '';
 
-    // 3. Prop Qty
-    let propQty = 0;
-    if (invAmt > 0) {
-      propQty = qty * (payAmt / invAmt);
+  // --- Unit Price ---
+  let unitPrice = (typeof qty === "number" && qty > 0 && typeof invAmt === "number" && !isNaN(invAmt)) ? (invAmt / qty) : '';
+  if (tds[8]?.querySelector('input')) {
+    tds[8].querySelector('input').value = unitPrice !== '' && !isNaN(unitPrice) ? unitPrice.toFixed(2) : '';
+  }
+
+  // --- Prop. Qty. ---
+  let propQty = (typeof unitPrice === "number" && unitPrice > 0 && typeof payAmt === "number" && !isNaN(payAmt)) ? (payAmt / unitPrice) : '';
+  if (tds[15]) tds[15].textContent = propQty !== '' && !isNaN(propQty) ? propQty.toFixed(2) : '';
+
+  // --- Discount Amount ---
+  let discAmt = '';
+  if (
+    typeof discPmt === "number" && !isNaN(discPmt) &&
+    diffDays !== '' && diffDays !== "N.A." &&
+    typeof diffDays === "number" && !isNaN(diffDays) &&
+    typeof propQty === "number" && !isNaN(propQty)
+  ) {
+    discAmt = discPmt * diffDays * propQty;
+    if (tds[16]) tds[16].textContent = discAmt.toFixed(2);
+  } else {
+    if (tds[16]) tds[16].textContent = "N.A.";
+    discAmt = "N.A.";
+  }
+
+  // --- Balance Amt ---
+  let balAmt = '';
+  if (
+    typeof invAmt === "number" && !isNaN(invAmt) &&
+    typeof payAmt === "number" && !isNaN(payAmt) &&
+    typeof discAmt === "number" && !isNaN(discAmt)
+  ) {
+    balAmt = (invAmt - payAmt - discAmt).toFixed(2);
+  } else {
+    balAmt = "N.A.";
+  }
+  if (tds[17]?.querySelector('input')) {
+    tds[17].querySelector('input').value = balAmt;
+  }
+
+  // --- Remark Logic ---
+  // If Invoice Amount = Payment Amount, set Remark as "Adjusted"
+  if (
+    typeof invAmt === "number" && typeof payAmt === "number" &&
+    !isNaN(invAmt) && !isNaN(payAmt) &&
+    Math.abs(invAmt - payAmt) < 0.01 // allow floating point tolerance
+  ) {
+    if (tds[18]?.querySelector('input')) {
+      tds[18].querySelector('input').value = "Adjusted";
     }
-    inputs[15].value = (invAmt > 0 && qty > 0 && payAmt > 0) ? propQty.toFixed(2) : '';
+  }
 
-    // 4. Discount Amount
-    let discountAmt = 0;
-    if (diffDaysNum > 0 && propQty > 0 && discPmt > 0) {
-      discountAmt = discPmt * diffDaysNum * propQty;
+  // If negative Balance Amount, insert new payment row
+  if (
+    typeof balAmt === "string" && !isNaN(Number(balAmt)) &&
+    Number(balAmt) < 0 &&
+    !tr.classList.contains('discount-adjust-row') // Prevent duplicate
+  ) {
+    // Insert a new row after this one
+    const tbody = tr.parentElement;
+    // Find the original payment doc number
+    const originalPaymentDoc = tds[10]?.querySelector('input')?.value || 'PAY';
+
+    // Count existing adjustment rows for this payment doc
+    let adjustmentCount = 1;
+    tbody.querySelectorAll('tr.discount-adjust-row').forEach(adjRow => {
+      const adjDocInput = adjRow.querySelectorAll('td')[10]?.querySelector('input');
+      if (adjDocInput && adjDocInput.value.startsWith(originalPaymentDoc + '-')) {
+        adjustmentCount++;
+      }
+    });
+
+    // Generate payment number as "old payment doc no - n"
+    const newPaymentNumber = `${originalPaymentDoc}-${adjustmentCount}`;
+
+    const newTr = document.createElement('tr');
+    newTr.classList.add('discount-adjust-row');
+    newTr.innerHTML = `
+      <td><input type="checkbox" /></td>
+      <td></td>
+      <td><input type="text" value="" /></td>
+      <td><input type="text" value="" /></td>
+      <td><input type="text" value="" /></td>
+      <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="" min="0" /></td>
+      <td><input type="number" value="" min="0" readonly /></td>
+      <td><input type="number" value="${Math.abs(Number(balAmt)).toFixed(2)}" min="0" /></td>
+      <td><input type="text" value="${newPaymentNumber}" /></td>
+      <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="${Math.abs(Number(balAmt)).toFixed(2)}" min="0" /></td>
+      <td><input type="number" value="" min="0" /></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td><input type="number" readonly /></td>
+      <td><input type="text" /></td>
+    `;
+    // Insert after current row
+    if (tr.nextSibling && !tr.nextSibling.classList?.contains('discount-adjust-row')) {
+      tbody.insertBefore(newTr, tr.nextSibling);
+    } else if (!tr.nextSibling) {
+      tbody.appendChild(newTr);
     }
-    // Discount Amt cell is not an input, it's a text node
-    let discountAmtCell = row.querySelector('.discount-amount');
-    if (discountAmtCell) discountAmtCell.textContent = discountAmt ? discountAmt.toFixed(2) : '0.00';
+    bindRowEvents(newTr);
+    updateSlNo();
+    calculateRow(newTr);
+    // Set the remarks field explicitly
+    const remarksInput = newTr.querySelectorAll('td')[18]?.querySelector('input');
+    if (remarksInput) remarksInput.value = "Amount to be adjusted";
+    saveTableToStorage();
+  }
+}
 
-    // 5. Net Due (Balance Amt)
-    let netDue = invAmt - payAmt - discountAmt;
-    inputs[17].value = (invAmt > 0 || payAmt > 0 || discountAmt > 0) ? netDue.toFixed(2) : '';
-  });
+// Calculate all rows
+function calculateDiscounts() {
+  document.querySelectorAll('#tableBody tr').forEach(tr => calculateRow(tr));
 }
 
 // Attach auto-calc to all relevant inputs
@@ -102,6 +213,24 @@ document.getElementById('tableBody').addEventListener('input', function(e) {
   }
 });
 
+// --- Event Binding ---
+function bindRowEvents(tr) {
+  tr.querySelectorAll('input[type="text"], input[type="number"]').forEach(input => {
+    if (!input.readOnly) {
+      input.addEventListener('input', () => {
+        calculateRow(tr);
+        saveTableToStorage();
+      });
+    }
+  });
+  // Also save when checkbox is toggled (for select/deselect)
+  tr.querySelector('input[type="checkbox"]').addEventListener('change', saveTableToStorage);
+}
+
+// Bind events for all rows (existing and future)
+function bindAllRows() {
+  document.querySelectorAll('#tableBody tr').forEach(tr => bindRowEvents(tr));
+}
 
 // Initial calculation on page load
 window.addEventListener('DOMContentLoaded', autoCalculateAll);
@@ -133,29 +262,43 @@ function importCSV(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function (e) {
-    const content = e.target.result;
-    const lines = content.split('\n').filter(Boolean);
-    document.getElementById('tableBody').innerHTML = '';
-    lines.slice(1).forEach((line, i) => {
-      const values = line.split(',');
-      const row = document.createElement('tr');
-      row.innerHTML = `
-        <td><input type="checkbox"/></td>
-        <td>${i + 1}</td>
-        ${values.slice(0, 17).map((v, idx) =>
-          idx === 14 || idx === 15 ? `<td><input type="number" readonly value="${v.replace(/"/g, '')}" /></td>`
-          : idx === 16 ? `<td class="discount-amount">${v.replace(/"/g, '')}</td>`
-          : `<td><input type="${idx >= 6 && idx <= 12 ? 'number' : 'text'}" value="${v.replace(/"/g, '')}" /></td>`
-        ).join('')}
+  reader.onload = function(e) {
+    const text = e.target.result;
+    const lines = text.trim().split('\n');
+    if (lines.length < 2) return;
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = '';
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',');
+      while (cols.length < 17) cols.push('');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox" /></td>
+        <td></td>
+        <td><input type="text" value="${cols[0] || ''}" /></td>
+        <td><input type="text" value="${cols[1] || ''}" /></td>
+        <td><input type="text" value="${cols[2] || ''}" /></td>
+        <td><input type="text" value="${cols[3] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="text" value="${cols[4] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="number" value="${cols[5] || ''}" min="0" /></td>
+        <td><input type="number" value="${cols[6] || ''}" min="0" readonly /></td>
+        <td><input type="number" value="${cols[7] || ''}" min="0" /></td>
+        <td><input type="text" value="${cols[8] || ''}" /></td>
+        <td><input type="text" value="${cols[9] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="number" value="${cols[10] || ''}" min="0" /></td>
+        <td><input type="number" value="${cols[11] || ''}" min="0" /></td>
+        <td></td>
+        <td></td>
+        <td></td>
         <td><input type="number" readonly /></td>
-        <td><input type="text"/></td>
+        <td><input type="text" value="${cols[16] || ''}" /></td>
       `;
-      document.getElementById('tableBody').appendChild(row);
-    });
+      tbody.appendChild(tr);
+      bindRowEvents(tr);
+    }
     updateSlNo();
-    updateTotals();
-    autoCalculateAll(); // <-- Add this line
+    calculateDiscounts(); // <-- This fills calculated columns
+    saveTableToStorage();
   };
   reader.readAsText(file);
 }
@@ -257,4 +400,159 @@ function computeRowValues({invoiceAmount, quantity, dueDate, paymentDate, paymen
     discountAmt: discountAmt ? discountAmt.toFixed(2) : '0.00',
     netDue: (invoiceAmount > 0 || paymentAmount > 0 || discountAmt > 0) ? netDue.toFixed(2) : ''
   };
+}
+
+// Optional: force date input to DD-MM-YYYY format
+document.addEventListener('input', function(e) {
+  if (e.target.classList.contains('date-input')) {
+    let v = e.target.value.replace(/[^0-9]/g, '');
+    if (v.length > 2) v = v.slice(0,2) + '-' + v.slice(2);
+    if (v.length > 5) v = v.slice(0,5) + '-' + v.slice(5,9);
+    e.target.value = v.slice(0,10);
+  }
+});
+
+// --- Initial Bindings ---
+window.addEventListener('DOMContentLoaded', () => {
+  if (!loadTableFromStorage()) {
+    addRow();
+  }
+  bindAllRows();
+  calculateDiscounts();
+});
+
+function downloadSampleCSV() {
+  const header = [
+    "Product Code", "Description", "INVOICE NO.", "Invoice Date", "Due Date",
+    "Quantity", "Unit Price", "Invoice Amount", "Payment Doc", "Payment Date",
+    "Payment Amount", "Discount PMT", "Diff. Days", "Prop. Qty.", "Discount Amount",
+    "Balance Amount", "Remarks"
+  ];
+  const sample = [
+    "PRD001", "Sample Product", "INV123", "01-06-2024", "30-06-2024",
+    "10", "", "1000", "PAY456", "15-06-2024", "500", "5", "", "", "", "", "Sample remark"
+  ];
+  const csvContent = header.join(',') + '\n' + sample.join(',');
+  const blob = new Blob([csvContent], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'sample_discount.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function updateSlNo() {
+  const rows = document.querySelectorAll('#tableBody tr');
+  rows.forEach((tr, idx) => {
+    const slNoCell = tr.querySelectorAll('td')[1];
+    if (slNoCell) slNoCell.textContent = idx + 1;
+  });
+}
+
+function updateTotals() {
+  const tFoot = document.getElementById('tableFoot');
+  if (!tFoot) return;
+  const rows = document.querySelectorAll('#tableBody tr');
+  let totalInvAmt = 0, totalPayAmt = 0, totalDiscAmt = 0, totalBalAmt = 0;
+  rows.forEach(tr => {
+    const tds = tr.querySelectorAll('td');
+    const invAmt = parseFloat(tds[9]?.querySelector('input')?.value) || 0;
+    const payAmt = parseFloat(tds[12]?.querySelector('input')?.value) || 0;
+    const discAmt = parseFloat(tds[16]?.textContent) || 0;
+    const balAmt = parseFloat(tds[17]?.querySelector('input')?.value) || 0;
+    totalInvAmt += invAmt;
+    totalPayAmt += payAmt;
+    totalDiscAmt += discAmt;
+    totalBalAmt += balAmt;
+  });
+  const footerCells = [
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    totalInvAmt.toFixed(2),
+    '',
+    totalPayAmt.toFixed(2),
+    totalDiscAmt.toFixed(2),
+    '',
+    '',
+    '',
+    totalBalAmt.toFixed(2),
+    ''
+  ];
+  tFoot.querySelector('tr').innerHTML = footerCells.map(cell => `<td>${cell}</td>`).join('');
+}
+
+// Local Storage
+function saveTableToStorage() {
+  const rows = [];
+  document.querySelectorAll('#tableBody tr').forEach(tr => {
+    const row = {};
+    tr.querySelectorAll('td').forEach((td, idx) => {
+      const input = td.querySelector('input');
+      if (input) {
+        row[idx] = input.value;
+      } else {
+        row[idx] = td.textContent;
+      }
+    });
+    // Save if this is an adjustment row
+    if (tr.classList.contains('discount-adjust-row')) {
+      row['adjustment'] = true;
+    }
+    rows.push(row);
+  });
+  localStorage.setItem('invoiceTable', JSON.stringify(rows));
+}
+
+function loadTableFromStorage() {
+  const rows = JSON.parse(localStorage.getItem('invoiceTable'));
+  if (!rows) return false;
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  rows.forEach((row, idx) => {
+    const tr = document.createElement('tr');
+    if (row['adjustment']) tr.classList.add('discount-adjust-row');
+    const cells = Object.values(row).filter((_, i) => !isNaN(i)).map((cell, i) => {
+      if (i === 3 || i === 4 || i === 9 || i === 11) {
+        // Date fields: reformat to DD-MM-YYYY
+        return formatDate(cell);
+      }
+      return cell;
+    });
+    tr.innerHTML = `
+      <td><input type="checkbox" /></td>
+      <td></td>
+      <td><input type="text" value="${cells[0] || ''}" /></td>
+      <td><input type="text" value="${cells[1] || ''}" /></td>
+      <td><input type="text" value="${cells[2] || ''}" /></td>
+      <td><input type="text" value="${cells[3] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="text" value="${cells[4] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="${cells[5] || ''}" min="0" /></td>
+      <td><input type="number" value="${cells[6] || ''}" min="0" readonly /></td>
+      <td><input type="number" value="${cells[7] || ''}" min="0" /></td>
+      <td><input type="text" value="${cells[8] || ''}" /></td>
+      <td><input type="text" value="${cells[9] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="${cells[10] || ''}" min="0" /></td>
+      <td><input type="number" value="${cells[11] || ''}" min="0" /></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td><input type="number" readonly /></td>
+      <td><input type="text" value="${cells[16] || ''}" /></td>
+    `;
+    tbody.appendChild(tr);
+    bindRowEvents(tr);
+  });
+  updateSlNo();
+  calculateDiscounts(); // <-- This fills calculated columns
+  return true;
 }

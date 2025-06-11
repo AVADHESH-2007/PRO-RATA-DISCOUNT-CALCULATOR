@@ -139,15 +139,20 @@ function calculateRow(tr) {
     }
   }
 
+  // PAYMENT ADJUSTMENT LOGIC-1
+
+  // Remove any existing adjustment row immediately after this row
+  if (tr.nextSibling && tr.nextSibling.classList?.contains('discount-adjust-row')) {
+    tr.nextSibling.remove();
+  }
+
   // If negative Balance Amount, insert new payment row
   if (
     typeof balAmt === "string" && !isNaN(Number(balAmt)) &&
     Number(balAmt) < 0 &&
-    !tr.classList.contains('discount-adjust-row') // Prevent duplicate
+    !tr.classList.contains('discount-adjust-row') // Prevent duplicate for adjustment rows
   ) {
-    // Insert a new row after this one
     const tbody = tr.parentElement;
-    // Find the original payment doc number
     const originalPaymentDoc = tds[10]?.querySelector('input')?.value || 'PAY';
 
     // Count existing adjustment rows for this payment doc
@@ -174,7 +179,7 @@ function calculateRow(tr) {
       <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
       <td><input type="number" value="" min="0" /></td>
       <td><input type="number" value="" min="0" readonly /></td>
-      <td><input type="number" value="${Math.abs(Number(balAmt)).toFixed(2)}" min="0" /></td>
+      <td><input type="number" value="" min="0" /></td> <!-- Invoice Amount blank -->
       <td><input type="text" value="${newPaymentNumber}" /></td>
       <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
       <td><input type="number" value="${Math.abs(Number(balAmt)).toFixed(2)}" min="0" /></td>
@@ -183,20 +188,17 @@ function calculateRow(tr) {
       <td></td>
       <td></td>
       <td><input type="number" readonly /></td>
-      <td><input type="text" /></td>
+      <td><input type="text" value="Amount to be adjusted" /></td>
     `;
     // Insert after current row
-    if (tr.nextSibling && !tr.nextSibling.classList?.contains('discount-adjust-row')) {
+    if (tr.nextSibling) {
       tbody.insertBefore(newTr, tr.nextSibling);
-    } else if (!tr.nextSibling) {
+    } else {
       tbody.appendChild(newTr);
     }
     bindRowEvents(newTr);
     updateSlNo();
     calculateRow(newTr);
-    // Set the remarks field explicitly
-    const remarksInput = newTr.querySelectorAll('td')[18]?.querySelector('input');
-    if (remarksInput) remarksInput.value = "Amount to be adjusted";
     saveTableToStorage();
   }
 }

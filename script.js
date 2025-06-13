@@ -167,6 +167,12 @@ function calculateRow(tr) {
     // Generate payment number as "old payment doc no - n"
     const newPaymentNumber = `${originalPaymentDoc}-${adjustmentCount}`;
 
+    // Always calculate balance amount, treat "N.A." as 0
+    let paymentAmt = Math.abs(Number(balAmt));
+    let invoiceAmt = 0;
+    let discountAmt = 0; // Always 0 for this row
+    let balanceAmt = (invoiceAmt - paymentAmt - discountAmt).toFixed(2);
+
     const newTr = document.createElement('tr');
     newTr.classList.add('discount-adjust-row');
     newTr.innerHTML = `
@@ -182,13 +188,13 @@ function calculateRow(tr) {
       <td><input type="number" value="" min="0" /></td> <!-- Invoice Amount blank -->
       <td><input type="text" value="${newPaymentNumber}" /></td>
       <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-      <td><input type="number" value="${Math.abs(Number(balAmt)).toFixed(2)}" min="0" /></td>
+      <td><input type="number" value="${paymentAmt.toFixed(2)}" min="0" /></td>
       <td><input type="number" value="" min="0" /></td>
       <td></td>
       <td></td>
       <td></td>
-      <td><input type="number" readonly /></td>
-      <td><input type="text" value="Amount to be adjusted" /></td>
+      <td><input type="number" readonly value="${balanceAmt}" /></td>
+      <td><input type="text" value="Amount to be adjusted of discount" /></td>
     `;
     // Insert after current row
     if (tr.nextSibling) {
@@ -198,7 +204,123 @@ function calculateRow(tr) {
     }
     bindRowEvents(newTr);
     updateSlNo();
-    calculateRow(newTr);
+    // No need to call calculateRow for this row, as values are set directly
+    saveTableToStorage();
+  }
+
+  // PAYMENT ADJUSTMENT LOGIC – CASE 2:
+  if (
+    typeof invAmt === "number" && typeof payAmt === "number" &&
+    !isNaN(invAmt) && !isNaN(payAmt) &&
+    invAmt < payAmt &&
+    !tr.classList.contains('discount-adjust-row') &&
+    !tr.classList.contains('excess-payment-row')
+  ) {
+    // 1. Set Remark as "Adjusted" and Payment Amount = Invoice Amount
+    if (tds[18]?.querySelector('input')) {
+      tds[18].querySelector('input').value = "Adjusted";
+    }
+    if (tds[12]?.querySelector('input')) {
+      tds[12].querySelector('input').value = invAmt.toFixed(2);
+    }
+
+    // Remove any existing excess/disc adjustment rows after this row
+    let next = tr.nextSibling;
+    while (next && (next.classList?.contains('excess-payment-row') || next.classList?.contains('discount-adjust-row'))) {
+      let toRemove = next;
+      next = next.nextSibling;
+      toRemove.remove();
+    }
+
+    const tbody = tr.parentElement;
+
+    // 2. Excess Payment Row
+    const originalPayAmt = payAmt;
+    const excessAmt = (originalPayAmt - invAmt).toFixed(2);
+    if (excessAmt > 0) {
+      const excessBalAmt = (0 - Number(excessAmt) - 0).toFixed(2);
+      const excessTr = document.createElement('tr');
+      excessTr.classList.add('excess-payment-row');
+      excessTr.innerHTML = `
+        <td><input type="checkbox" /></td>
+        <td></td>
+        <td><input type="text" value="" /></td>
+        <td><input type="text" value="" /></td>
+        <td><input type="text" value="" /></td>
+        <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="number" value="" min="0" /></td>
+        <td><input type="number" value="" min="0" readonly /></td>
+        <td><input type="number" value="" min="0" /></td>
+        <td><input type="text" value="${tds[10]?.querySelector('input')?.value || ''}" /></td>
+        <td><input type="text" value="${tds[11]?.querySelector('input')?.value || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="number" value="${excessAmt}" min="0" /></td>
+        <td><input type="number" value="" min="0" /></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td><input type="number" readonly value="${excessBalAmt}" /></td>
+        <td><input type="text" value="Excess payment" /></td>
+      `;
+      // Insert after current row
+      if (tr.nextSibling) {
+        tbody.insertBefore(excessTr, tr.nextSibling);
+      } else {
+        tbody.appendChild(excessTr);
+      }
+      bindRowEvents(excessTr);
+      updateSlNo();
+    }
+
+    // 3. Discount Adjustment Row
+    let discAmtVal = tds[16]?.textContent;
+    if (discAmtVal && !isNaN(Number(discAmtVal)) && Number(discAmtVal) > 0) {
+      const originalPaymentDoc = tds[10]?.querySelector('input')?.value || 'PAY';
+      let adjustmentCount = 1;
+      tbody.querySelectorAll('tr.discount-adjust-row').forEach(adjRow => {
+        const adjDocInput = adjRow.querySelectorAll('td')[10]?.querySelector('input');
+        if (adjDocInput && adjDocInput.value.startsWith(originalPaymentDoc + '-')) {
+          adjustmentCount++;
+        }
+      });
+      const newPaymentNumber = `${originalPaymentDoc}-${adjustmentCount}`;
+      const discBalAmt = (0 - Number(discAmtVal) - 0).toFixed(2);
+
+      const discTr = document.createElement('tr');
+      discTr.classList.add('discount-adjust-row');
+      discTr.innerHTML = `
+        <td><input type="checkbox" /></td>
+        <td></td>
+        <td><input type="text" value="" /></td>
+        <td><input type="text" value="" /></td>
+        <td><input type="text" value="" /></td>
+        <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="number" value="" min="0" /></td>
+        <td><input type="number" value="" min="0" readonly /></td>
+        <td><input type="number" value="" min="0" /></td>
+        <td><input type="text" value="${newPaymentNumber}" /></td>
+        <td><input type="text" value="" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+        <td><input type="number" value="${Number(discAmtVal).toFixed(2)}" min="0" /></td>
+        <td><input type="number" value="" min="0" /></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td><input type="number" readonly value="${discBalAmt}" /></td>
+        <td><input type="text" value="Amount to be adjusted of discount" /></td>
+      `;
+      // Insert after excess payment row if present, else after main row
+      let insertAfter = tr.nextSibling && tr.nextSibling.classList.contains('excess-payment-row')
+        ? tr.nextSibling
+        : tr;
+      if (insertAfter.nextSibling) {
+        tbody.insertBefore(discTr, insertAfter.nextSibling);
+      } else {
+        tbody.appendChild(discTr);
+      }
+      bindRowEvents(discTr);
+      updateSlNo();
+    }
     saveTableToStorage();
   }
 }

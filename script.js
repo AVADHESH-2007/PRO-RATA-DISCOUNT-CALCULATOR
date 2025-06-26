@@ -556,10 +556,9 @@ document.addEventListener('input', function(e) {
 
 // --- Initial Bindings ---
 window.addEventListener('DOMContentLoaded', () => {
-  const hasData = loadTableFromStorage();
-  if (!hasData) {
-    addRow();
-  }
+  localStorage.removeItem('invoiceTable'); // Always clear storage on load
+  document.getElementById('tableBody').innerHTML = '';
+  addRow();
   bindAllRows();
 });
 

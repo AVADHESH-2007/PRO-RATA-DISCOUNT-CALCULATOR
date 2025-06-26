@@ -462,10 +462,17 @@ function resetSelected() {
   updateTotals();
 }
 
-window.onload = function () {
-  addRow();
-  updateTotals();
-};
+window.onload = null; // Remove the old onload handler if present
+
+window.addEventListener('DOMContentLoaded', () => {
+  // Only load from storage if there is data, otherwise add a blank row
+  const hasData = loadTableFromStorage();
+  if (!hasData) {
+    addRow();
+  }
+  bindAllRows();
+  // Do NOT call calculateDiscounts() here
+});
 
 document.addEventListener('input', function(e) {
   if (e.target.classList.contains('date-input')) {
@@ -474,14 +481,6 @@ document.addEventListener('input', function(e) {
     if (v.length > 5) v = v.slice(0,5) + '-' + v.slice(5,9);
     e.target.value = v.slice(0,10);
   }
-});
-
-window.addEventListener('DOMContentLoaded', () => {
-  if (!loadTableFromStorage()) {
-    addRow();
-  }
-  bindAllRows();
-  calculateDiscounts();
 });
 
 function downloadSampleCSV() {
@@ -559,7 +558,7 @@ function saveTableToStorage() {
 
 function loadTableFromStorage() {
   const rows = JSON.parse(localStorage.getItem('invoiceTable'));
-  if (!rows) return false;
+  if (!rows || !Array.isArray(rows) || rows.length === 0) return false;
   const tbody = document.getElementById('tableBody');
   tbody.innerHTML = '';
   rows.forEach((row, idx) => {
@@ -595,7 +594,7 @@ function loadTableFromStorage() {
     bindRowEvents(tr);
   });
   updateSlNo();
-  calculateDiscounts();
+  // Do NOT call calculateDiscounts() here
   return true;
 }
   </script>

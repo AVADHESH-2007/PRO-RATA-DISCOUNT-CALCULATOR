@@ -27,7 +27,6 @@ function addRow() {
   tbody.appendChild(row);
   updateSlNo();
   updateTotals();
-  autoCalculateAll();
 }
 
 // Helper: Parse DD-MM-YYYY to Date object
@@ -330,21 +329,44 @@ function calculateDiscounts() {
   document.querySelectorAll('#tableBody tr').forEach(tr => calculateRow(tr));
 }
 
-// Attach auto-calc to all relevant inputs
-document.getElementById('tableBody').addEventListener('input', function(e) {
-  if (e.target.matches('input[type="text"], input[type="number"]')) {
-    autoCalculateAll();
-  }
-});
+// --- Remove all auto-calculation triggers ---
+// (Comment out or delete the following blocks)
+
+// document.getElementById('tableBody').addEventListener('input', function(e) {
+//   if (e.target.matches('input[type="text"], input[type="number"]')) {
+//     autoCalculateAll();
+//   }
+// });
+
+// In bindRowEvents, remove calculation on input
+function bindRowEvents(tr) {
+  tr.querySelectorAll('input[type="text"], input[type="number"]').forEach(input => {
+    if (!input.readOnly) {
+      // Only save, do NOT calculate
+      input.addEventListener('input', saveTableToStorage);
+    }
+  });
+  tr.querySelector('input[type="checkbox"]').addEventListener('change', saveTableToStorage);
+}
+
+// Remove autoCalculateAll from window.onload, DOMContentLoaded, etc.
+
+// --- Add manual calculate function ---
+function manualCalculate() {
+  calculateDiscounts();
+  updateTotals();
+  saveTableToStorage();
+}
 
 // --- Event Binding ---
 function bindRowEvents(tr) {
   tr.querySelectorAll('input[type="text"], input[type="number"]').forEach(input => {
     if (!input.readOnly) {
-      input.addEventListener('input', () => {
-        calculateRow(tr);
-        saveTableToStorage();
-      });
+        // Remove or comment out this part:
+        // input.addEventListener('input', () => {
+        //   calculateRow(tr);
+        //   saveTableToStorage();
+        // });
     }
   });
   // Also save when checkbox is toggled (for select/deselect)
@@ -357,8 +379,6 @@ function bindAllRows() {
 }
 
 // Initial calculation on page load
-window.addEventListener('DOMContentLoaded', autoCalculateAll);
-
 function exportCSV() {
   updateSlNo();
   updateTotals();
@@ -392,9 +412,11 @@ function importCSV(event) {
     if (lines.length < 2) return;
     const tbody = document.getElementById('tableBody');
     tbody.innerHTML = '';
+    // Get header to determine mapping
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',');
-      while (cols.length < 17) cols.push('');
+      // Map CSV columns to table columns
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><input type="checkbox" /></td>
@@ -405,15 +427,15 @@ function importCSV(event) {
         <td><input type="text" value="${cols[3] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
         <td><input type="text" value="${cols[4] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
         <td><input type="number" value="${cols[5] || ''}" min="0" /></td>
-        <td><input type="number" value="${cols[6] || ''}" min="0" readonly /></td>
+        <td><input type="number" value="" min="0" readonly /></td>
         <td><input type="number" value="${cols[7] || ''}" min="0" /></td>
         <td><input type="text" value="${cols[8] || ''}" /></td>
         <td><input type="text" value="${cols[9] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
         <td><input type="number" value="${cols[10] || ''}" min="0" /></td>
-        <td><input type="number" value="${cols[11] || ''}" min="0" /></td>
+        <td><input type="number" value="${cols[11] || ''}" min="0" placeholder="Discount PMT" /></td>
         <td></td>
         <td></td>
-        <td></td>
+        <td class="discount-amount">-</td>
         <td><input type="number" readonly /></td>
         <td><input type="text" value="${cols[16] || ''}" /></td>
       `;
@@ -421,7 +443,6 @@ function importCSV(event) {
       bindRowEvents(tr);
     }
     updateSlNo();
-    calculateDiscounts(); // <-- This fills calculated columns
     saveTableToStorage();
   };
   reader.readAsText(file);
@@ -466,7 +487,6 @@ function resetSelected() {
     }
   });
   updateTotals();
-  autoCalculateAll(); // <-- Add this line
 }
 
 window.onload = function () {
@@ -475,8 +495,6 @@ window.onload = function () {
 };
 
 // After all rows are added:
-autoCalculateAll();
-
 function computeRowValues({invoiceAmount, quantity, dueDate, paymentDate, paymentAmount, discountPMT}) {
   // Parse dates
   function parseDDMMYYYY(str) {
@@ -538,12 +556,54 @@ document.addEventListener('input', function(e) {
 
 // --- Initial Bindings ---
 window.addEventListener('DOMContentLoaded', () => {
-  if (!loadTableFromStorage()) {
+  const hasData = loadTableFromStorage();
+  if (!hasData) {
     addRow();
   }
   bindAllRows();
-  calculateDiscounts();
 });
+
+function loadTableFromStorage() {
+  const rows = JSON.parse(localStorage.getItem('invoiceTable'));
+  if (!rows || !Array.isArray(rows) || rows.length === 0) return false;
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  rows.forEach((row, idx) => {
+    const tr = document.createElement('tr');
+    const cells = Object.values(row).filter((_, i) => !isNaN(i)).map((cell, i) => {
+      if (i === 5 || i === 6 || i === 11) {
+        return formatDate(cell);
+      }
+      return cell;
+    });
+    tr.innerHTML = `
+      <td><input type="checkbox" /></td>
+      <td></td>
+      <td><input type="text" value="${cells[2] || ''}" /></td>
+      <td><input type="text" value="${cells[3] || ''}" /></td>
+      <td><input type="text" value="${cells[4] || ''}" /></td>
+      <td><input type="text" value="${cells[5] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="text" value="${cells[6] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="${cells[7] || ''}" min="0" /></td>
+      <td><input type="number" value="${cells[8] || ''}" min="0" readonly /></td>
+      <td><input type="number" value="${cells[9] || ''}" min="0" /></td>
+      <td><input type="text" value="${cells[10] || ''}" /></td>
+      <td><input type="text" value="${cells[11] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="${cells[12] || ''}" min="0" /></td>
+      <td><input type="number" value="${cells[13] || ''}" min="0" /></td>
+      <td>${cells[14] || ''}</td>
+      <td>${cells[15] || ''}</td>
+      <td class="discount-amount">${cells[16] || '-'}</td>
+      <td><input type="number" value="${cells[17] || ''}" readonly /></td>
+      <td><input type="text" value="${cells[18] || ''}" /></td>
+    `;
+    tbody.appendChild(tr);
+    bindRowEvents(tr);
+  });
+  updateSlNo();
+  // calculateDiscounts(); // Do not auto-calculate on load
+  return true;
+}
 
 function downloadSampleCSV() {
   const header = [
@@ -639,15 +699,13 @@ function saveTableToStorage() {
 
 function loadTableFromStorage() {
   const rows = JSON.parse(localStorage.getItem('invoiceTable'));
-  if (!rows) return false;
+  if (!rows || !Array.isArray(rows) || rows.length === 0) return false;
   const tbody = document.getElementById('tableBody');
   tbody.innerHTML = '';
   rows.forEach((row, idx) => {
     const tr = document.createElement('tr');
-    if (row['adjustment']) tr.classList.add('discount-adjust-row');
     const cells = Object.values(row).filter((_, i) => !isNaN(i)).map((cell, i) => {
-      if (i === 3 || i === 4 || i === 9 || i === 11) {
-        // Date fields: reformat to DD-MM-YYYY
+      if (i === 5 || i === 6 || i === 11) {
         return formatDate(cell);
       }
       return cell;
@@ -655,28 +713,36 @@ function loadTableFromStorage() {
     tr.innerHTML = `
       <td><input type="checkbox" /></td>
       <td></td>
-      <td><input type="text" value="${cells[0] || ''}" /></td>
-      <td><input type="text" value="${cells[1] || ''}" /></td>
       <td><input type="text" value="${cells[2] || ''}" /></td>
-      <td><input type="text" value="${cells[3] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-      <td><input type="text" value="${cells[4] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-      <td><input type="number" value="${cells[5] || ''}" min="0" /></td>
-      <td><input type="number" value="${cells[6] || ''}" min="0" readonly /></td>
+      <td><input type="text" value="${cells[3] || ''}" /></td>
+      <td><input type="text" value="${cells[4] || ''}" /></td>
+      <td><input type="text" value="${cells[5] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="text" value="${cells[6] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
       <td><input type="number" value="${cells[7] || ''}" min="0" /></td>
-      <td><input type="text" value="${cells[8] || ''}" /></td>
-      <td><input type="text" value="${cells[9] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-      <td><input type="number" value="${cells[10] || ''}" min="0" /></td>
-      <td><input type="number" value="${cells[11] || ''}" min="0" /></td>
-      <td></td>
-      <td></td>
-      <td></td>
-      <td><input type="number" readonly /></td>
-      <td><input type="text" value="${cells[16] || ''}" /></td>
+      <td><input type="number" value="${cells[8] || ''}" min="0" readonly /></td>
+      <td><input type="number" value="${cells[9] || ''}" min="0" /></td>
+      <td><input type="text" value="${cells[10] || ''}" /></td>
+      <td><input type="text" value="${cells[11] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="${cells[12] || ''}" min="0" /></td>
+      <td><input type="number" value="${cells[13] || ''}" min="0" /></td>
+      <td>${cells[14] || ''}</td>
+      <td>${cells[15] || ''}</td>
+      <td class="discount-amount">${cells[16] || '-'}</td>
+      <td><input type="number" value="${cells[17] || ''}" readonly /></td>
+      <td><input type="text" value="${cells[18] || ''}" /></td>
     `;
     tbody.appendChild(tr);
     bindRowEvents(tr);
   });
   updateSlNo();
-  calculateDiscounts(); // <-- This fills calculated columns
+  // calculateDiscounts(); // Do not auto-calculate on load
   return true;
 }
+
+function manualCalculate() {
+  calculateDiscounts();
+  updateTotals();
+  saveTableToStorage();
+}
+
+localStorage.removeItem('invoiceTable');

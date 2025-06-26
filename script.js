@@ -26,7 +26,7 @@ function addRow() {
   row.innerHTML = cells.join('');
   tbody.appendChild(row);
   updateSlNo();
-  updateTotals();
+  // Do NOT call updateTotals() or calculateRow here
 }
 
 // Helper: Parse DD-MM-YYYY to Date object
@@ -57,6 +57,9 @@ function generatePaymentNumber() {
 }
 
 // --- Calculation Logic ---
+// All calculation for Unit Price, Diff. Days, Prop. Qty, Discount Amt, Balance Amt
+// is now ONLY triggered by manualCalculate() (Calculate button)
+// No auto-calculation on input or row changes.
 function calculateRow(tr) {
   const tds = tr.querySelectorAll('td');
   // Editable fields
@@ -342,14 +345,12 @@ function calculateDiscounts() {
 function bindRowEvents(tr) {
   tr.querySelectorAll('input[type="text"], input[type="number"]').forEach(input => {
     if (!input.readOnly) {
-      // Only save, do NOT calculate
+      input.removeEventListener('input', saveTableToStorage); // Remove any duplicate
       input.addEventListener('input', saveTableToStorage);
     }
   });
   tr.querySelector('input[type="checkbox"]').addEventListener('change', saveTableToStorage);
 }
-
-// Remove autoCalculateAll from window.onload, DOMContentLoaded, etc.
 
 // --- Add manual calculate function ---
 function manualCalculate() {
@@ -412,8 +413,6 @@ function importCSV(event) {
     if (lines.length < 2) return;
     const tbody = document.getElementById('tableBody');
     tbody.innerHTML = '';
-    // Get header to determine mapping
-    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',');
       // Map CSV columns to table columns
@@ -489,11 +488,6 @@ function resetSelected() {
   updateTotals();
 }
 
-window.onload = function () {
-  addRow();
-  updateTotals();
-};
-
 // After all rows are added:
 function computeRowValues({invoiceAmount, quantity, dueDate, paymentDate, paymentAmount, discountPMT}) {
   // Parse dates
@@ -560,6 +554,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('tableBody').innerHTML = '';
   addRow();
   bindAllRows();
+  // Do NOT call calculateDiscounts or updateTotals here
 });
 
 function loadTableFromStorage() {

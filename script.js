@@ -329,7 +329,14 @@ function calculateRow(tr) {
 
 // Calculate all rows
 function calculateDiscounts() {
-  document.querySelectorAll('#tableBody tr').forEach(tr => calculateRow(tr));
+  const tbody = document.getElementById('tableBody');
+  if (!tbody) return;
+  // Remove previously inserted adjustment/excess rows so repeated calculates don't duplicate them
+  tbody.querySelectorAll('tr.discount-adjust-row, tr.excess-payment-row').forEach(r => r.remove());
+
+  // Work on a snapshot of current main rows only (avoid rows added during calculation)
+  const mainRows = Array.from(tbody.querySelectorAll('tr')).filter(r => !r.classList.contains('discount-adjust-row') && !r.classList.contains('excess-payment-row'));
+  mainRows.forEach(tr => calculateRow(tr));
 }
 
 // --- Remove all auto-calculation triggers ---
@@ -409,40 +416,48 @@ function importCSV(event) {
   const reader = new FileReader();
   reader.onload = function(e) {
     const text = e.target.result;
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return;
+    // Split lines and filter out blank lines
+    let lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length < 2) return; // Must have at least header + 1 data row
     const tbody = document.getElementById('tableBody');
     tbody.innerHTML = '';
+    // Assume first line is header, skip it
+    let validDataRows = 0;
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split(',');
-      // Map CSV columns to table columns
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><input type="checkbox" /></td>
-        <td></td>
-        <td><input type="text" value="${cols[0] || ''}" /></td>
-        <td><input type="text" value="${cols[1] || ''}" /></td>
-        <td><input type="text" value="${cols[2] || ''}" /></td>
-        <td><input type="text" value="${cols[3] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-        <td><input type="text" value="${cols[4] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-        <td><input type="number" value="${cols[5] || ''}" min="0" /></td>
-        <td><input type="number" value="" min="0" readonly /></td>
-        <td><input type="number" value="${cols[7] || ''}" min="0" /></td>
-        <td><input type="text" value="${cols[8] || ''}" /></td>
-        <td><input type="text" value="${cols[9] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-        <td><input type="number" value="${cols[10] || ''}" min="0" /></td>
-        <td><input type="number" value="${cols[11] || ''}" min="0" placeholder="Discount PMT" /></td>
-        <td></td>
-        <td></td>
-        <td class="discount-amount">-</td>
-        <td><input type="number" readonly /></td>
-        <td><input type="text" value="${cols[16] || ''}" /></td>
-      `;
-      tbody.appendChild(tr);
-      bindRowEvents(tr);
+      // Consider a row valid if at least one of the main columns has data
+      if (cols.some(cell => cell && cell.trim() !== '')) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="checkbox" /></td>
+          <td></td>
+          <td><input type="text" value="${cols[0] || ''}" /></td>
+          <td><input type="text" value="${cols[1] || ''}" /></td>
+          <td><input type="text" value="${cols[2] || ''}" /></td>
+          <td><input type="text" value="${cols[3] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+          <td><input type="text" value="${cols[4] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+          <td><input type="number" value="${cols[5] || ''}" min="0" /></td>
+          <td><input type="number" value="" min="0" readonly /></td>
+          <td><input type="number" value="${cols[7] || ''}" min="0" /></td>
+          <td><input type="text" value="${cols[8] || ''}" /></td>
+          <td><input type="text" value="${cols[9] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+          <td><input type="number" value="${cols[10] || ''}" min="0" /></td>
+          <td><input type="number" value="${cols[11] || ''}" min="0" placeholder="Discount PMT" /></td>
+          <td></td>
+          <td></td>
+          <td class="discount-amount">-</td>
+          <td><input type="number" readonly /></td>
+          <td><input type="text" value="${cols[16] || ''}" /></td>
+        `;
+        tbody.appendChild(tr);
+        bindRowEvents(tr);
+        validDataRows++;
+      }
     }
     updateSlNo();
     saveTableToStorage();
+    // Optionally, display validDataRows somewhere if you want to show the count
+    // No calculation is triggered here
   };
   reader.readAsText(file);
 }
@@ -549,55 +564,33 @@ document.addEventListener('input', function(e) {
 });
 
 // --- Initial Bindings ---
+// Single startup handler: clear any saved table and show exactly one blank row.
 window.addEventListener('DOMContentLoaded', () => {
-  localStorage.removeItem('invoiceTable'); // Always clear storage on load
-  document.getElementById('tableBody').innerHTML = '';
-  addRow();
-  bindAllRows();
-  // Do NOT call calculateDiscounts or updateTotals here
+  try { localStorage.removeItem('invoiceTable'); } catch (e) {}
+  const tbody = document.getElementById('tableBody');
+  if (tbody) {
+    tbody.innerHTML = '';
+    addRow();
+    bindAllRows();
+    updateSlNo();
+  }
 });
 
-function loadTableFromStorage() {
-  const rows = JSON.parse(localStorage.getItem('invoiceTable'));
-  if (!rows || !Array.isArray(rows) || rows.length === 0) return false;
+// Also run initialization immediately to handle cases where the script
+// is loaded after DOMContentLoaded has already fired (ensures deterministic start).
+function initStartup() {
+  try { localStorage.removeItem('invoiceTable'); } catch (e) {}
   const tbody = document.getElementById('tableBody');
-  tbody.innerHTML = '';
-  rows.forEach((row, idx) => {
-    const tr = document.createElement('tr');
-    const cells = Object.values(row).filter((_, i) => !isNaN(i)).map((cell, i) => {
-      if (i === 5 || i === 6 || i === 11) {
-        return formatDate(cell);
-      }
-      return cell;
-    });
-    tr.innerHTML = `
-      <td><input type="checkbox" /></td>
-      <td></td>
-      <td><input type="text" value="${cells[2] || ''}" /></td>
-      <td><input type="text" value="${cells[3] || ''}" /></td>
-      <td><input type="text" value="${cells[4] || ''}" /></td>
-      <td><input type="text" value="${cells[5] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-      <td><input type="text" value="${cells[6] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-      <td><input type="number" value="${cells[7] || ''}" min="0" /></td>
-      <td><input type="number" value="${cells[8] || ''}" min="0" readonly /></td>
-      <td><input type="number" value="${cells[9] || ''}" min="0" /></td>
-      <td><input type="text" value="${cells[10] || ''}" /></td>
-      <td><input type="text" value="${cells[11] || ''}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
-      <td><input type="number" value="${cells[12] || ''}" min="0" /></td>
-      <td><input type="number" value="${cells[13] || ''}" min="0" /></td>
-      <td>${cells[14] || ''}</td>
-      <td>${cells[15] || ''}</td>
-      <td class="discount-amount">${cells[16] || '-'}</td>
-      <td><input type="number" value="${cells[17] || ''}" readonly /></td>
-      <td><input type="text" value="${cells[18] || ''}" /></td>
-    `;
-    tbody.appendChild(tr);
-    bindRowEvents(tr);
-  });
-  updateSlNo();
-  // calculateDiscounts(); // Do not auto-calculate on load
-  return true;
+  if (tbody) {
+    tbody.innerHTML = '';
+    addRow();
+    bindAllRows();
+    updateSlNo();
+  }
 }
+initStartup();
+
+// loadTableFromStorage is defined earlier and used when an explicit load is required.
 
 function downloadSampleCSV() {
   const header = [
@@ -738,5 +731,3 @@ function manualCalculate() {
   updateTotals();
   saveTableToStorage();
 }
-
-localStorage.removeItem('invoiceTable');

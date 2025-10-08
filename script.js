@@ -252,6 +252,16 @@ function importCSV(event) {
     }
     updateSlNo();
     saveTableToStorage();
+    // After loading rows from CSV, run client-side duplicate detection and highlight offending rows
+    try {
+      const records = getTableRecords();
+      const dups = findDuplicatesInRecords(records);
+      if (dups.length > 0) {
+        const messages = dups.map(d => `${d.field === 'invoice_number' ? 'Invoice No.' : 'Payment Document No.'} [${d.value}]`);
+        showErrorToUser(`Error: Duplicate entry found for ${messages.join('; ')}. Please verify and re-upload.`, dups);
+        highlightDuplicateRows(dups);
+      }
+    } catch (e) { /* ignore validation errors */ }
     // Optionally, display validDataRows somewhere if you want to show the count
     // No calculation is triggered here
   };
@@ -410,6 +420,63 @@ function downloadSampleCSV() {
   URL.revokeObjectURL(url);
 }
 
+// Collect table rows into a simple records array for validation/upload
+function getTableRecords() {
+  const rows = Array.from(document.querySelectorAll('#tableBody tr'));
+  return rows.map(tr => {
+    const tds = tr.querySelectorAll('td');
+    return {
+      productCode: tds[2]?.querySelector('input')?.value || '',
+      description: tds[3]?.querySelector('input')?.value || '',
+      invoice_number: tds[4]?.querySelector('input')?.value || '',
+      invoiceDate: tds[5]?.querySelector('input')?.value || '',
+      dueDate: tds[6]?.querySelector('input')?.value || '',
+      quantity: tds[7]?.querySelector('input')?.value || '',
+      unitPrice: tds[8]?.querySelector('input')?.value || '',
+      invoiceAmount: tds[9]?.querySelector('input')?.value || '',
+      paymentDoc: tds[10]?.querySelector('input')?.value || '',
+      payment_document_number: tds[10]?.querySelector('input')?.value || '',
+      paymentDate: tds[11]?.querySelector('input')?.value || '',
+      paymentAmount: tds[12]?.querySelector('input')?.value || '',
+      discountAmt: tds[13]?.querySelector('input')?.value || '',
+      remarks: tds[14]?.querySelector('input')?.value || '',
+      discountPMT: tds[15]?.querySelector('input')?.value || '',
+      diffDays: tds[16]?.querySelector('input')?.value || '',
+      propQty: tds[17]?.querySelector('input')?.value || ''
+    };
+  });
+}
+
+function generateSessionId() {
+  // Simple session id using timestamp + random characters
+  return 'sess-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,9);
+}
+
+// Called when user clicks Upload in the UI
+async function onUploadFromUI() {
+  const records = getTableRecords();
+  const ok = await validateBeforeUpload(records);
+  if (!ok) return; // validation will show errors
+
+  // Attempt to POST to /upload; if server missing, fall back to showing success message
+  try {
+    const resp = await fetch('/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: null, upload_session_id: generateSessionId(), records })
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      showErrorToUser(data.message || 'Upload failed on server', data.duplicates || []);
+      return;
+    }
+    alert('Upload succeeded');
+  } catch (err) {
+    console.warn('Upload endpoint not available; simulated upload succeeded (client-side only).');
+    alert('Upload simulated (no server). Records validated locally.');
+  }
+}
+
 function updateSlNo() {
   const rows = document.querySelectorAll('#tableBody tr');
   rows.forEach((tr, idx) => {
@@ -480,14 +547,394 @@ function loadTableFromStorage() {
   return true;
 }
 
-// --- Remark Logic ---
-// If Invoice Amount = Payment Amount, set Remark as "Adjusted"
-if (
-  typeof invAmt === "number" && typeof payAmt === "number" &&
-  !isNaN(invAmt) && !isNaN(payAmt) &&
-  Math.abs(invAmt - payAmt) < 0.01 // allow floating point tolerance
-) {
-  if (tds[18]?.querySelector('input')) {
-    tds[18].querySelector('input').value = "Adjusted";
+// --- Payment Adjustment Logic (NEW) ---
+// Applies sequential, line-by-line payment adjustments per requirements.
+function applyPaymentAdjustments() {
+  const tbody = document.getElementById('tableBody');
+  if (!tbody) return;
+
+  // Read existing rows into invoice objects
+  const rows = Array.from(tbody.querySelectorAll('tr')).map((tr, idx) => {
+    const tds = tr.querySelectorAll('td');
+    const obj = {
+      index: idx,
+      productCode: tds[2]?.querySelector('input')?.value || '',
+      description: tds[3]?.querySelector('input')?.value || '',
+      invoiceNo: tds[4]?.querySelector('input')?.value || '',
+      invoiceDate: tds[5]?.querySelector('input')?.value || '',
+      dueDate: tds[6]?.querySelector('input')?.value || '',
+      quantity: parseFloat(tds[7]?.querySelector('input')?.value) || 0,
+      unitPrice: parseFloat(tds[8]?.querySelector('input')?.value) || 0,
+      invoiceAmount: parseFloat(tds[9]?.querySelector('input')?.value) || 0,
+      paymentDoc: tds[10]?.querySelector('input')?.value || '',
+      paymentDate: tds[11]?.querySelector('input')?.value || '',
+      paymentAmount: parseFloat(tds[12]?.querySelector('input')?.value) || 0,
+      discountAmt: parseFloat(tds[13]?.querySelector('input')?.value) || 0,
+      remarks: tds[14]?.querySelector('input')?.value || '',
+      discountPMT: parseFloat(tds[15]?.querySelector('input')?.value) || 0,
+      diffDays: parseFloat(tds[16]?.querySelector('input')?.value) || 0,
+      propQty: parseFloat(tds[17]?.querySelector('input')?.value) || 0,
+      remainingAmount: parseFloat(tds[9]?.querySelector('input')?.value) || 0,
+      remainingQty: parseFloat(tds[7]?.querySelector('input')?.value) || 0,
+      originalInvoiceAmount: parseFloat(tds[9]?.querySelector('input')?.value) || 0,
+      originalQty: parseFloat(tds[7]?.querySelector('input')?.value) || 0
+    };
+    return obj;
+  });
+
+  // Prepare adjustments array per invoice
+  const invoices = rows.map(r => {
+    return {
+      ...r,
+      fragments: [] // each fragment: {amount, qty, paymentDoc, paymentDate, paymentAmount, sourcePaymentRowIndex}
+    };
+  });
+
+  // Process payments sequentially: for each row (in order) treat its payment as a payment to allocate to earliest outstanding invoices
+  invoices.forEach((invRow, payIndex) => {
+    let paymentLeft = invRow.paymentAmount || 0;
+    const payDoc = invRow.paymentDoc || '';
+    const payDate = invRow.paymentDate || '';
+
+    if (paymentLeft <= 0) return;
+
+    // Allocate to earliest invoices with remainingAmount > 0
+    for (let j = 0; j < invoices.length && paymentLeft > 0; j++) {
+      const target = invoices[j];
+      if (target.remainingAmount <= 0) continue;
+
+      // Amount to apply to this target invoice
+      const amountToApply = Math.min(paymentLeft, target.remainingAmount);
+      if (amountToApply <= 0) continue;
+
+      // Proportional quantity based on original invoice amount
+      const qtyApplied = target.originalInvoiceAmount > 0
+        ? (target.originalQty * (amountToApply / target.originalInvoiceAmount))
+        : 0;
+
+      // Record fragment on target invoice
+      target.fragments.push({
+        amount: Number(amountToApply.toFixed(2)),
+        qty: Number(qtyApplied.toFixed(4)), // keep more precision for quantities
+        paymentDoc: payDoc,
+        paymentDate: payDate,
+        paymentAmount: Number(amountToApply.toFixed(2)),
+        sourcePaymentRow: payIndex
+      });
+
+      // Reduce remaining amounts/qty
+      target.remainingAmount = Number((target.remainingAmount - amountToApply).toFixed(2));
+      target.remainingQty = Number((target.remainingQty - qtyApplied).toFixed(4));
+
+      // Reduce paymentLeft
+      paymentLeft = Number((paymentLeft - amountToApply).toFixed(2));
+    }
+    // If any paymentLeft remains (should not, since it can apply to its own invoice too),
+    // the logic above already attempts to apply to all invoices including current.
+  });
+
+  // After allocation, for each invoice create output fragments:
+  const resultFragments = []; // ordered adjusted lines
+  invoices.forEach(inv => {
+    // If there were fragments (payments applied) create lines for each fragment in order
+    if (inv.fragments.length > 0) {
+      inv.fragments.forEach(frag => {
+        // Use computeRowValues to calculate unitPrice, discount, diffDays, propQty based on fragment
+        const computed = computeRowValues({
+          invoiceAmount: frag.amount,
+          quantity: frag.qty,
+          dueDate: inv.dueDate,
+          paymentDate: frag.paymentDate,
+          paymentAmount: frag.paymentAmount,
+          discountPMT: inv.discountPMT
+        });
+
+        resultFragments.push({
+          productCode: inv.productCode,
+          description: inv.description,
+          invoiceNo: inv.invoiceNo,
+          invoiceDate: inv.invoiceDate,
+          dueDate: inv.dueDate,
+          quantity: frag.qty,
+          unitPrice: computed.unitPrice,
+          invoiceAmount: frag.amount,
+          paymentDoc: frag.paymentDoc,
+          paymentDate: frag.paymentDate,
+          paymentAmount: frag.paymentAmount,
+          discountAmt: computed.discountAmt || '0.00',
+          remarks: (Math.abs(frag.amount - frag.paymentAmount) < 0.005) ? 'Adjusted' : inv.remarks,
+          discountPMT: inv.discountPMT,
+          diffDays: computed.diffDays,
+          propQty: computed.propQty
+        });
+      });
+    }
+
+    // If remainingAmount > 0 create an unpaid fragment (the split line capturing differential)
+    if (inv.remainingAmount > 0.0001) {
+      const unpaidQty = inv.remainingQty;
+      const computedUnpaid = computeRowValues({
+        invoiceAmount: inv.remainingAmount,
+        quantity: unpaidQty,
+        dueDate: inv.dueDate,
+        paymentDate: '', // no payment yet
+        paymentAmount: 0,
+        discountPMT: inv.discountPMT
+      });
+
+      resultFragments.push({
+        productCode: inv.productCode,
+        description: inv.description,
+        invoiceNo: inv.invoiceNo,
+        invoiceDate: inv.invoiceDate,
+        dueDate: inv.dueDate,
+        quantity: unpaidQty,
+        unitPrice: computedUnpaid.unitPrice,
+        invoiceAmount: Number(inv.remainingAmount.toFixed(2)),
+        paymentDoc: '',
+        paymentDate: '',
+        paymentAmount: 0,
+        discountAmt: '0.00',
+        remarks: inv.remarks || '',
+        discountPMT: inv.discountPMT,
+        diffDays: computedUnpaid.diffDays,
+        propQty: computedUnpaid.propQty
+      });
+    }
+
+    // Edge case: if there were no fragments and no remaining (i.e., fully paid earlier),
+    // nothing to add here because fragments would have covered full amount.
+    // If invoice had no payment and no fragments (no payments applied), then add the original unchanged line
+    if (inv.fragments.length === 0 && inv.remainingAmount === inv.originalInvoiceAmount) {
+      // No payments touched this invoice; keep as-is
+      const computedOrig = computeRowValues({
+        invoiceAmount: inv.originalInvoiceAmount,
+        quantity: inv.originalQty,
+        dueDate: inv.dueDate,
+        paymentDate: inv.paymentDate || '',
+        paymentAmount: inv.paymentAmount || 0,
+        discountPMT: inv.discountPMT
+      });
+      resultFragments.push({
+        productCode: inv.productCode,
+        description: inv.description,
+        invoiceNo: inv.invoiceNo,
+        invoiceDate: inv.invoiceDate,
+        dueDate: inv.dueDate,
+        quantity: inv.originalQty,
+        unitPrice: computedOrig.unitPrice,
+        invoiceAmount: Number(inv.originalInvoiceAmount.toFixed(2)),
+        paymentDoc: inv.paymentDoc,
+        paymentDate: inv.paymentDate,
+        paymentAmount: Number(inv.paymentAmount.toFixed(2)),
+        discountAmt: computedOrig.discountAmt || '0.00',
+        remarks: inv.remarks || '',
+        discountPMT: inv.discountPMT,
+        diffDays: computedOrig.diffDays,
+        propQty: computedOrig.propQty
+      });
+    }
+  });
+
+  // Replace table body with adjusted lines
+  tbody.innerHTML = '';
+  resultFragments.forEach(f => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="checkbox" /></td>
+      <td></td>
+      <td><input type="text" value="${escapeHtml(f.productCode)}" /></td>
+      <td><input type="text" value="${escapeHtml(f.description)}" /></td>
+      <td><input type="text" value="${escapeHtml(f.invoiceNo)}" /></td>
+      <td><input type="text" value="${escapeHtml(f.invoiceDate)}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="text" value="${escapeHtml(f.dueDate)}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="${Number(f.quantity).toFixed(2)}" min="0" /></td>
+      <td><input type="number" value="${f.unitPrice}" min="0" readonly /></td>
+      <td><input type="number" value="${Number(f.invoiceAmount).toFixed(2)}" min="0" /></td>
+      <td><input type="text" value="${escapeHtml(f.paymentDoc)}" /></td>
+      <td><input type="text" value="${escapeHtml(f.paymentDate)}" class="date-input" maxlength="10" placeholder="DD-MM-YYYY" /></td>
+      <td><input type="number" value="${Number(f.paymentAmount).toFixed(2)}" min="0" /></td>
+      <td><input type="number" value="${Number(f.discountAmt).toFixed(2)}" min="0" readonly /></td>
+      <td><input type="text" value="${escapeHtml(f.remarks)}" /></td>
+      <td><input type="number" value="${Number(f.discountPMT).toFixed(2)}" min="0" /></td>
+      <td><input type="number" value="${escapeFloat(f.diffDays)}" min="0" readonly /></td>
+      <td><input type="number" value="${escapeFloat(f.propQty)}" min="0" readonly /></td>
+    `;
+    tbody.appendChild(tr);
+    bindRowEvents(tr);
+  });
+
+  updateSlNo();
+  updateTotals();
+  saveTableToStorage();
+}
+
+// helper to escape input values to avoid breaking HTML
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// helper to format diffDays/propQty which can be 'N.A.' or numeric
+function escapeFloat(v) {
+  if (v === '' || v === null || v === undefined) return '';
+  return (typeof v === 'number' || (!isNaN(Number(v)))) ? Number(v).toFixed(0) : String(v);
+}
+
+// Add "Apply Adjustments" button to the UI if not present
+function ensureApplyAdjustmentsButton() {
+  if (document.getElementById('applyAdjustmentsBtn')) return;
+  const btn = document.createElement('button');
+  btn.id = 'applyAdjustmentsBtn';
+  btn.type = 'button';
+  btn.textContent = 'Apply Adjustments';
+  btn.style.marginLeft = '8px';
+  btn.addEventListener('click', () => {
+    // confirm action (non-blocking short)
+    if (!confirm('Apply sequential payment adjustments to the current table?')) return;
+    applyPaymentAdjustments();
+  });
+
+  // Try to insert into a container if present, else append to body above the table
+  const containerCandidates = ['controls', 'toolbar', 'buttonBar'];
+  let inserted = false;
+  for (const id of containerCandidates) {
+    const el = document.getElementById(id);
+    if (el) { el.appendChild(btn); inserted = true; break; }
+  }
+  if (!inserted) {
+    // find invoice table and insert before it
+    const table = document.getElementById('invoiceTable');
+    if (table && table.parentNode) {
+      table.parentNode.insertBefore(btn, table);
+    } else {
+      document.body.insertBefore(btn, document.body.firstChild);
+    }
+  }
+}
+
+// Ensure button creation on startup (both DOMContentLoaded and immediate init paths)
+window.addEventListener('DOMContentLoaded', () => {
+  ensureApplyAdjustmentsButton();
+});
+
+// Also when script runs after DOM already loaded
+try { ensureApplyAdjustmentsButton(); } catch (e) {}
+
+// script.js (frontend)
+async function validateBeforeUpload(records) {
+  // records: array of objects { invoice_number, payment_document_number, ... }
+  // First run client-side validation to catch duplicates in the uploaded file/table itself.
+  try {
+    const localDuplicates = findDuplicatesInRecords(records);
+    if (localDuplicates.length > 0) {
+      const messages = localDuplicates.map(d => {
+        return `Duplicate entry found for ${d.field === 'invoice_number' ? 'Invoice No.' : 'Payment Document No.'} [${d.value}]`;
+      });
+      const userMessage = `Error: ${messages.join('; ')}. Please verify and re-upload.`;
+      showErrorToUser(userMessage, localDuplicates);
+      return false;
+    }
+
+    // If a server endpoint exists, call it for server-side validation (database/staging check).
+    // If the fetch fails (no server), we consider client-side validation sufficient to block duplicates present in the file.
+    try {
+      const resp = await fetch('/validate-duplicates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records })
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        const message = data && data.message
+          ? data.message
+          : 'Error: Duplicate entries detected. Please verify and re-upload.';
+        showErrorToUser(message, data.duplicates || []);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      // Network/server unavailable. Log and allow upload to proceed only if client-side validation passed.
+      console.warn('Server-side validation not available, proceeding with client-side checks only.');
+      return true;
+    }
+  } catch (err) {
+    console.error('Validation process failed', err);
+    showErrorToUser('Unexpected error during validation. Please try again.', []);
+    return false;
+  }
+}
+
+// Find duplicates within the provided records array (client-side).
+function findDuplicatesInRecords(records) {
+  const normalize = v => (v === null || v === undefined) ? '' : String(v).trim().toLowerCase();
+  const invoiceMap = new Map();
+  const paymentMap = new Map();
+  records.forEach((rec, idx) => {
+    const inv = normalize(rec.invoice_number || rec.invoiceNo || rec.invoice || '');
+    const pay = normalize(rec.payment_document_number || rec.paymentDoc || rec.payment_document || '');
+    if (inv) {
+      if (!invoiceMap.has(inv)) invoiceMap.set(inv, []);
+      invoiceMap.get(inv).push(idx);
+    }
+    if (pay) {
+      if (!paymentMap.has(pay)) paymentMap.set(pay, []);
+      paymentMap.get(pay).push(idx);
+    }
+  });
+
+  const duplicates = [];
+  invoiceMap.forEach((indices, value) => {
+    if (indices.length > 1) duplicates.push({ field: 'invoice_number', value, recordIndices: indices, detected_in: 'client' });
+  });
+  paymentMap.forEach((indices, value) => {
+    if (indices.length > 1) duplicates.push({ field: 'payment_document_number', value, recordIndices: indices, detected_in: 'client' });
+  });
+  return duplicates;
+}
+
+function showErrorToUser(message, duplicates) {
+  // Example: display in a modal or alert; for demo console and alert used.
+  console.error('Upload validation failed:', message, duplicates);
+  // Example UI: display as formatted list with each duplicate and an explanation
+  const details = (duplicates || []).map(d => {
+    const userField = d.field === 'invoice_number' ? 'Invoice No.' : 'Payment Document No.';
+    return `${userField} [${d.value}] (found in ${d.detected_in}) - records: ${d.recordIndices.join(', ')}`;
+  }).join('\n');
+  alert(`${message}\n\nDetails:\n${details}`);
+}
+
+// Visually mark duplicate rows in the table for easy identification
+function highlightDuplicateRows(duplicates) {
+  // Clear previous highlights
+  document.querySelectorAll('#tableBody tr').forEach(tr => tr.style.outline = 'none');
+  duplicates.forEach(d => {
+    const idxs = d.recordIndices || [];
+    idxs.forEach(i => {
+      const tr = document.querySelectorAll('#tableBody tr')[i];
+      if (tr) tr.style.outline = '3px solid rgba(255,0,0,0.35)';
+    });
+  });
+}
+
+// Example usage after parsing file to records
+async function onUploadButtonClicked(parsedRecords) {
+  const ok = await validateBeforeUpload(parsedRecords);
+  if (!ok) return;
+  // proceed to POST to /upload
+  const resp = await fetch('/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user_id: window.currentUserId || null,
+      upload_session_id: generateSessionId(),
+      records: parsedRecords
+    })
+  });
+  if (resp.ok) {
+    alert('Upload successful');
+  } else {
+    const data = await resp.json();
+    alert('Upload failed: ' + (data && data.message ? data.message : 'Unknown error'));
   }
 }

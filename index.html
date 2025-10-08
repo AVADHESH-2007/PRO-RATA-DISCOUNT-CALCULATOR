@@ -175,7 +175,8 @@ input[type="checkbox"] {
     <button onclick="downloadSampleCSV()">Download Sample CSV</button>
     <input type="file" id="importFile" accept=".csv" style="display:none" onchange="importCSV(event)">
     <button onclick="document.getElementById('importFile').click()">Import CSV</button>
-    <button id="calculateBtn" onclick="manualCalculate()">Calculate</button>
+  <button id="calculateBtn" onclick="manualCalculate()">Calculate</button>
+  <button id="uploadBtn" onclick="onUploadFromUI()">Upload</button>
   </div>
   <table id="invoiceTable">
     <thead>
